@@ -1,4 +1,4 @@
-"""Простой локальный сервер учебного сайта на стандартной библиотеке Python."""
+
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,7 +14,6 @@ PAGE_PATH = PROJECT_DIR / "outputs" / "index.html"
 
 
 def initialize_database():
-    """Создаёт папку, файл SQLite и таблицы при первом запуске."""
     DATABASE_PATH.parent.mkdir(exist_ok=True)
     with sqlite3.connect(DATABASE_PATH) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
