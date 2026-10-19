@@ -2,7 +2,7 @@
 
 ## 1. Запуск сайта и базы
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     actor Student as Студент
     participant Python as Python
@@ -17,11 +17,11 @@ sequenceDiagram
     Browser->>Server: GET /api/health/
     Server->>DB: SELECT 1
     Server-->>Browser: База доступна
-\`\`\`
+```
 
 ## 2. Регистрация и вход (начальная серверная версия)
 
-\`\`\`mermaid
+```mermaid
 sequenceDiagram
     actor User as Пользователь
     participant Browser as Браузер
@@ -36,6 +36,6 @@ sequenceDiagram
     Browser->>Server: POST /api/login
     Server->>DB: Находит аккаунт и проверяет хеш
     Server-->>Browser: Создаёт сессию
-\`\`\`
+```
 
 Экранные формы пока не подключены к этим адресам. Подключение и ручная проверка запланированы на текущую неделю.
