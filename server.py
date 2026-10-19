@@ -109,7 +109,7 @@ class SiteHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
-        data = self.read_json()
+        data = {} if path == "/api/logout" else self.read_json()
         if data is None:
             self.send_json(400, {"error": "Отправь корректные данные в формате JSON"})
             return
