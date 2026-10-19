@@ -8,3 +8,12 @@ Thumbs.db
 *.tmp
 *.log
 /work/
+
+# Python и локальная база проекта
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+/data/
+*.sqlite3
