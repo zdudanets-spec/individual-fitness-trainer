@@ -22,6 +22,20 @@ def initialize_database():
     DATABASE_PATH.parent.mkdir(exist_ok=True)
     with connect_database() as connection:
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        seed_exercises(connection)
+
+def seed_exercises(db):
+    exercises = [
+        ("Приседание к стулу", "Силовая", "Поставь стул позади себя. Отведи таз назад, согни колени и мягко коснись стула. Поднимись, надавливая стопами в пол.", "Без оборудования", "beginner"),
+        ("Отжимание от стены", "Силовая", "Упрись ладонями в стену на ширине плеч. Согни руки, приближая грудь к стене, затем плавно выпрями их.", "Стена", "beginner"),
+        ("Ягодичный мост", "Силовая", "Ляг на спину, согни колени, стопы поставь на пол. Напряги ягодицы и подними таз до прямой линии корпуса.", "Коврик", "beginner"),
+        ("Птица-собака", "Стабилизация", "Встань на четвереньки. Вытяни противоположные руку и ногу, сохраняя спину ровной, затем поменяй сторону.", "Коврик", "beginner"),
+        ("Подъём на носки", "Силовая", "Встань устойчиво, при необходимости держись за опору. Поднимись на носки, задержись на секунду и медленно опустись.", "Без оборудования", "beginner"),
+        ("Шаги на месте", "Кардио", "Шагай на месте в комфортном темпе, мягко ставя стопу и свободно двигая руками.", "Без оборудования", "beginner"),
+        ("Наклон от таза", "Подвижность", "Слегка согни колени и отведи таз назад, наклоняя корпус с ровной спиной. Вернись в исходное положение.", "Без оборудования", "beginner"),
+        ("Планка с колен", "Стабилизация", "Обопрись на предплечья и колени. Напряги живот, держи корпус прямым и спокойно дыши.", "Коврик", "beginner"),
+    ]
+    db.executemany("INSERT OR IGNORE INTO exercises (name, category, instructions, equipment, difficulty) VALUES (?, ?, ?, ?, ?)", exercises)
 
 def hash_password(password):
     salt = secrets.token_bytes(16)
@@ -37,6 +51,23 @@ def verify_password(password, stored):
         return hmac.compare_digest(digest, digest_hex)
     except (ValueError, TypeError):
         return False
+
+def build_plan(profile):
+    """Небольшой безопасный план на всё тело для домашнего старта."""
+    base = [
+        {"name":"Приседание к стулу","sets":3,"repetitions":"8–10","rest":60,"instructions":"Контролируй движение и не опускайся ниже комфортной глубины."},
+        {"name":"Отжимание от стены","sets":3,"repetitions":"8–12","rest":60,"instructions":"Держи корпус прямым, двигайся без рывков."},
+        {"name":"Ягодичный мост","sets":3,"repetitions":"10–12","rest":60,"instructions":"Поднимай таз за счёт ягодиц, не прогибай поясницу."},
+        {"name":"Птица-собака","sets":2,"repetitions":"8 на сторону","rest":45,"instructions":"Сохраняй равновесие и ровное положение спины."},
+        {"name":"Шаги на месте","sets":2,"repetitions":"60 секунд","rest":45,"instructions":"Выбери темп, в котором можешь спокойно разговаривать."},
+    ]
+    frequency = max(1, min(int(profile.get("frequency", 3)), 5))
+    sessions = []
+    for day in range(1, frequency + 1):
+        sessions.append({"day": day, "title": f"Тренировка {chr(64 + day)} · всё тело", "duration": "20–30 минут", "exercises": base})
+    return {"goal": profile.get("goal", "Поддерживать форму"), "sessions": sessions,
+            "warmup": "Перед занятием 5 минут походи и мягко разомни суставы.",
+            "cooldown": "В конце спокойно походи 2 минуты. Остановись при боли или головокружении."}
 
 class SiteHandler(BaseHTTPRequestHandler):
     def send_bytes(self, status, content_type, body, headers=()):
@@ -104,6 +135,14 @@ class SiteHandler(BaseHTTPRequestHandler):
         elif path == "/api/me":
             user = self.current_user()
             self.send_json(200, {"user": user}) if user else self.send_json(401, {"error": "Войдите в аккаунт"})
+        elif path == "/api/profile":
+            user = self.current_user()
+            if not user:
+                self.send_json(401, {"error": "Войдите в аккаунт"})
+                return
+            with connect_database() as db:
+                row = db.execute("SELECT * FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
+            self.send_json(200, {"profile": dict(row) if row else None})
         else:
             self.send_json(404, {"error": "Страница не найдена"})
 
@@ -151,6 +190,28 @@ class SiteHandler(BaseHTTPRequestHandler):
                 with connect_database() as db:
                     db.execute("DELETE FROM sessions WHERE session_id=?", (morsel.value,))
             self.send_json(200, {"status": "ok"}, [("Set-Cookie", "session_id=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0")])
+        elif path == "/api/profile":
+            user = self.current_user()
+            if not user:
+                self.send_json(401, {"error": "Войдите в аккаунт"})
+                return
+            try:
+                age = data.get("age") or None
+                height = data.get("height") or None
+                weight = data.get("weight") or None
+                frequency = int(data.get("frequency", 3))
+                if age is not None: age = int(age)
+                if height is not None: height = float(height)
+                if weight is not None: weight = float(weight)
+                level_map = {"Начинаю с нуля": "beginner", "Иногда тренируюсь": "intermediate", "Тренируюсь регулярно": "advanced"}
+                with connect_database() as db:
+                    db.execute("""INSERT INTO profiles (user_id, age, height_cm, weight_kg, fitness_level, goal, weekly_frequency, location, equipment, limitations, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id) DO UPDATE SET age=excluded.age,height_cm=excluded.height_cm,weight_kg=excluded.weight_kg,fitness_level=excluded.fitness_level,goal=excluded.goal,weekly_frequency=excluded.weekly_frequency,location=excluded.location,equipment=excluded.equipment,limitations=excluded.limitations,updated_at=CURRENT_TIMESTAMP""",
+                    (user["id"], age, height, weight, level_map.get(data.get("level"), "beginner"), str(data.get("goal", "Поддерживать форму"))[:80], max(1,min(frequency,7)), str(data.get("place", "Дома"))[:80], json.dumps(data.get("prefs", []), ensure_ascii=False), str(data.get("limits", ""))[:500]))
+                self.send_json(200, {"status": "saved", "plan": build_plan(data)})
+            except (ValueError, sqlite3.Error):
+                self.send_json(400, {"error": "Проверь данные анкеты"})
         else:
             self.send_json(404, {"error": "Адрес не найден"})
 
