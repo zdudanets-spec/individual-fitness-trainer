@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 11160)
+Total output lines: 275
+
 """Локальный сервер сайта на стандартной библиотеке Python."""
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -142,7 +145,21 @@ class SiteHandler(BaseHTTPRequestHandler):
                 return
             with connect_database() as db:
                 row = db.execute("SELECT * FROM profiles WHERE user_id=?", (user["id"],)).fetchone()
-            self.send_json(200, {"profile": dict(row) if row else None})
+            if not row:
+                self.send_json(200, {"profile": None})
+                return
+            profile = dict(row)
+            profile["prefs"] = json.loads(profile.get("equipment") or "[]")
+            profile["frequency"] = profile["weekly_frequency"]
+            profile["level"] = {"beginner":"Начинаю с нуля","intermediate":"Иногда тренируюсь","advanced":"Тренируюсь регулярно"}.get(profile["fitness_level"], "Начинаю с нуля")
+            profile["place"] = profile["location"]
+            profile["limits"] = profile["limitations"]
+            plan = build_plan(profile)
+            for session in plan["sessions"]:
+                for exercise in session["exercises"]:
+                    exercise["desc"] = exercise["instructions"]
+                    exercise["meta"] = f"{exercise['sets']} подхода × {exercise['repetitions']} · отдых {exercise['rest']} сек"
+            self.send_json(200, {"profile": profile, "plan": plan})
         else:
             self.send_json(404, {"error": "Страница не найдена"})
 
