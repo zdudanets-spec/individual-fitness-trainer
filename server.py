@@ -194,6 +194,14 @@ class SiteHandler(BaseHTTPRequestHandler):
                     exercise["desc"] = exercise["instructions"]
                     exercise["meta"] = f"{exercise['sets']} подхода × {exercise['repetitions']} · отдых {exercise['rest']} сек"
             self.send_json(200, {"profile": profile, "plan": plan})
+        elif path == "/api/workouts":
+            user = self.current_user()
+            if not user:
+                self.send_json(401, {"error": "Войдите в аккаунт"})
+                return
+            with connect_database() as db:
+                rows = db.execute("SELECT id, scheduled_date, status, started_at, completed_at, notes FROM workout_sessions WHERE user_id=? ORDER BY scheduled_date DESC, id DESC", (user["id"],)).fetchall()
+            self.send_json(200, {"workouts": [dict(row) for row in rows]})
         else:
             self.send_json(404, {"error": "Страница не найдена"})
 
@@ -263,6 +271,27 @@ class SiteHandler(BaseHTTPRequestHandler):
                 self.send_json(200, {"status": "saved", "plan": build_plan(data)})
             except (ValueError, sqlite3.Error):
                 self.send_json(400, {"error": "Проверь данные анкеты"})
+        elif path == "/api/workout":
+            user = self.current_user()
+            if not user:
+                self.send_json(401, {"error": "Войдите в аккаунт"})
+                return
+            date = str(data.get("date", ""))
+            status = data.get("status")
+            if len(date) != 10 or status not in ("in_progress", "completed", "incomplete"):
+                self.send_json(400, {"error": "Проверь дату и статус тренировки"})
+                return
+            notes = json.dumps(data.get("done", []), ensure_ascii=False)
+            now = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            with connect_database() as db:
+                old = db.execute("SELECT id, started_at FROM workout_sessions WHERE user_id=? AND scheduled_date=?", (user["id"], date)).fetchone()
+                if old:
+                    db.execute("UPDATE workout_sessions SET status=?, notes=?, started_at=COALESCE(started_at, ?), completed_at=? WHERE id=?", (status, notes, now, now if status == "completed" else None, old["id"]))
+                    workout_id = old["id"]
+                else:
+                    db.execute("INSERT INTO workout_sessions (user_id, scheduled_date, started_at, completed_at, status, notes) VALUES (?, ?, ?, ?, ?, ?)", (user["id"], date, now, now if status == "completed" else None, status, notes))
+                    workout_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+            self.send_json(200, {"status": "saved", "workout_id": workout_id})
         else:
             self.send_json(404, {"error": "Адрес не найден"})
 
